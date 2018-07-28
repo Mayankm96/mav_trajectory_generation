@@ -14,6 +14,7 @@ __Modifications By:__ [Himanshu](https://github.com/himanshu-erol), [Mayank Mitt
 Following the original dependencies required to build this repository, the following additional dependencies need to be installed:
 
 1. [Open Motion Planning Library](http://ompl.kavrakilab.org/)
+
 OMPL provides various sampling based motion planning algorithms which may be used. To install:
 ```bash
 sudo apt-get update
@@ -44,7 +45,7 @@ make -j `nproc`
 sudo make install
 ```
 
-3. [`mav_msgs`](http://wiki.ros.org/mav_msgs) pacakage:
+3. [`mav_msgs`](http://wiki.ros.org/mav_msgs) package:
 ```
 cd ~/catkin_ws/src
 git clone https://github.com/ethz-asl/mav_comm.git
@@ -52,7 +53,9 @@ git clone https://github.com/ethz-asl/mav_comm.git
 
 __NOTE__: To build, follow the steps mentioned later in the documentation.
 
-## Added node: [`minimal_path_planning`](src/minimal_path_planning.cpp)
+## Node
+
+### [`minimal_path_planning`](src/minimal_path_planning.cpp)
 
 #### Subscribers
 * `/ground_truth/pose` ([geometry_msgs/PoseStamped])
