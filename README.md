@@ -1,3 +1,89 @@
+
+# Changelog
+
+This repository is a fork of the original [mav_trajectory_generation](https://github.com/ethz-asl/mav_trajectory_generation) repository.
+
+__Modifications By:__ [Himanshu](https://github.com/himanshu-erol), [Mayank Mittal](https://github.com/Mayankm96)
+
+* Added node for path planning algorithm combined with trajectory generation
+
+## Installation Instructions
+
+### Additional Dependecies
+
+Following the original dependencies required to build this repository, the following additional dependencies need to be installed:
+
+1. [Open Motion Planning Library](http://ompl.kavrakilab.org/)
+OMPL provides various sampling based motion planning algorithms which may be used. To install:
+```bash
+sudo apt-get update
+sudo apt-get install ros-`rosversion -d`-ompl
+```
+
+2. [Flexible Collision Library (FCL)](https://github.com/flexible-collision-library/fcl)
+
+The [`libcdd`](https://github.com/danfis/libccd) library acts as an dependecy before installing FCL. It is used to detect collision between two convex objects. Run the following to install it:
+```bash
+mkdir ~/git
+cd git
+git clone https://github.com/danfis/libccd.git
+mkdir build && cd build
+cmake -G "Unix Makefiles" ..
+make && sudo make install
+```
+
+Now to install FCL, run:
+```bash
+cd ~/git
+git clone https://github.com/flexible-collision-library/fcl
+cd fcl
+git checkout 0.5.0
+mkdir build && cd build
+cmake ..
+make -j `nproc`
+sudo make install
+```
+
+3. [`mav_msgs`](http://wiki.ros.org/mav_msgs) pacakage:
+```
+cd ~/catkin_ws/src
+git clone https://github.com/ethz-asl/mav_comm.git
+```
+
+__NOTE__: To build, follow the steps mentioned later in the documentation.
+
+## Added node: [`minimal_path_planning`](src/minimal_path_planning.cpp)
+
+#### Subscribers
+* `/ground_truth/pose` ([geometry_msgs/PoseStamped])
+
+    Inputs current pose to use as initial point
+
+* `/octomap_binary` ([octomap_msgs/Octomap])
+
+    Inputs the binary octomap generated to the point the node is run
+
+* `/landing_sites_np/clicked_pose` ([geometry_msgs/Pose])
+
+    Inputs the destination pose to used be as a goal point
+
+#### Publishers
+* `/spline_marker_array` ([visualization_msgs/MarkerArray])
+
+    Marker array indicating the jerk free trajectory generated
+
+* `/visualization_marker_spline` ([visualization_msgs/Marker])
+
+    Marker to display the spline trajectory
+
+#### Usage
+
+```
+roslaunch mav_trajectory_generation_ros path_plan.launch
+```
+
+---
+
 # mav_trajectory_generation
 This repository contains tools for polynomial trajectory generation and optimization based on methods described in [1].
 These techniques are especially suitable for rotary-wing micro aerial vehicles (MAVs).
@@ -389,3 +475,9 @@ if(!feasibility_check.checkHalfPlaneFeasibility(segment)) {
   std::cout << "The segment is not inside the box." << std::endl;
 }
 ```
+
+[geometry_msgs/PoseStamped]: http://docs.ros.org/melodic/api/geometry_msgs/html/msg/PoseStamped.html
+[octomap_msgs/Octomap]:http://docs.ros.org/melodic/api/octomap_msgs/html/msg/Octomap.html
+[geometry_msgs/Pose]: http://docs.ros.org/melodic/api/geometry_msgs/html/msg/Pose.html
+[visualization_msgs/MarkerArray]: http://docs.ros.org/melodic/api/visualization_msgs/html/msg/MarkerArray.html
+[visualization_msgs/Marker]: http://docs.ros.org/melodic/api/visualization_msgs/html/msg/Marker.html

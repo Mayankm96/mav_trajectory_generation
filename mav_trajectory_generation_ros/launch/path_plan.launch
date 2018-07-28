@@ -1,0 +1,9 @@
+<launch>
+
+    <node pkg="mav_trajectory_generation_ros"
+      name="minimal_path_planning"
+      type="minimal_path_planning"
+      output="screen">
+    </node>
+
+</launch>

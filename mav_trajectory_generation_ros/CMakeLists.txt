@@ -10,6 +10,10 @@ add_definitions(-std=c++11)
 #############
 # LIBRARIES #
 #############
+find_package(octomap REQUIRED)
+find_package(fcl REQUIRED)
+find_package(OMPL REQUIRED)
+
 cs_add_library(${PROJECT_NAME}
   src/feasibility_analytic.cpp
   src/feasibility_base.cpp
@@ -32,6 +36,20 @@ cs_add_executable(time_evaluation_node
   src/time_evaluation_node.cpp
 )
 target_link_libraries(time_evaluation_node ${PROJECT_NAME})
+
+cs_add_executable(minimal_path_planning
+  src/minimal_path_planning.cpp
+)
+
+target_link_libraries(minimal_path_planning
+  ${PROJECT_NAME}
+  ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
+  ${fcl_LIBRARIES}
+  ${OMPL_LIBRARIES}
+  fcl
+)
 
 #########
 # TESTS #
