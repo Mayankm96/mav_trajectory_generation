@@ -116,7 +116,7 @@ ob::OptimizationObjectivePtr getPathLengthObjWithCostToGo(const ob::SpaceInforma
     return obj;
 }
 
-void waypointsCallback1( trajectory_msgs::MultiDOFJointTrajectory msg)
+void waypointsCallback( trajectory_msgs::MultiDOFJointTrajectory msg)
 {
     trajectory_msgs::MultiDOFJointTrajectoryPoint point_msg;
     int num_waypoints = int(msg.points.size());
@@ -137,7 +137,7 @@ void waypointsCallback1( trajectory_msgs::MultiDOFJointTrajectory msg)
             mav_trajectory_generation::Vertex fix_point(3);
             point_msg = msg.points[index];
             //store previous waypoint
-            float prev_x=0.0,prev_y=0.0,prev_z=0.0,x,y,z;
+            float prev_x = 0.0, prev_y = 0.0, prev_z = 0.0, x, y, z;
             if(index)
             {
                 point_msg_prev = msg.points[index-1];
@@ -152,15 +152,15 @@ void waypointsCallback1( trajectory_msgs::MultiDOFJointTrajectory msg)
             y = point_msg.transforms[0].translation.y;
             z = point_msg.transforms[0].translation.z;
 
-            if(index==0)
+            if(index == 0)
             {
                 temp_point.makeStartOrEnd(Eigen::Vector3d(x,y,z), derivative_to_optimize);
                 vertices.push_back(temp_point);
             }
 
-            else if(index==num_waypoints-1)
+            else if(index == num_waypoints-1)
             {
-                if(num_waypoints==2) //add a middle point
+                if(num_waypoints == 2) //add a middle point
                 {
                     fix_point.addConstraint(mav_trajectory_generation::derivative_order::POSITION, Eigen::Vector3d((x+prev_x)/2,(y+prev_y)/2,(z+prev_z)/2));
                     vertices.push_back(fix_point);
@@ -213,7 +213,6 @@ void waypointsCallback1( trajectory_msgs::MultiDOFJointTrajectory msg)
         parameters.inequality_constraint_tolerance = 0.1;
 
         //#######create optimizer object and solve. (true/false) specifies if optimization run on just segment times
-
         const int N = 20;
         mav_trajectory_generation::PolynomialOptimizationNonLinear<N> opt(dimension, parameters);
         opt.setupFromVertices(vertices, segment_times, derivative_to_optimize);
@@ -221,10 +220,8 @@ void waypointsCallback1( trajectory_msgs::MultiDOFJointTrajectory msg)
         opt.optimize();
 
         //########obtain polynomial segments
-
         mav_trajectory_generation::Segment::Vector segments;
         opt.getPolynomialOptimizationRef().getSegments(&segments);
-
 
         //##########creating trajectories
         mav_trajectory_generation::Trajectory trajectory;
@@ -273,7 +270,7 @@ void waypointsCallback1( trajectory_msgs::MultiDOFJointTrajectory msg)
         {
             visualization_msgs::MarkerArray markers;
             double distance = 4.0; // Distance by which to seperate additional markers. Set 0.0 to disable.
-            std::string frame_id = "map";
+            std::string frame_id = "world";
 
             // From Trajectory class:
             mav_trajectory_generation::drawMavTrajectory(trajectory, distance, frame_id, &markers);
@@ -296,9 +293,9 @@ void plan(void)
 
 // set the bounds for the R^3 part of SE(3)
     ob::RealVectorBounds bounds(3);
-// bounds.setLow(-1);
-// bounds.setHigh(1);
-    bounds.setLow(0,-40);//set bounds of area
+    // bounds.setLow(-1);
+    // bounds.setHigh(1);
+    bounds.setLow(0,-40); //set bounds of area
     bounds.setHigh(0,40);
     bounds.setLow(1,-40);
     bounds.setHigh(1,40);
@@ -316,24 +313,23 @@ void plan(void)
 // create a random start state
     ob::ScopedState<ob::SE3StateSpace> start(space);
     start->setXYZ(cur_x,cur_y,cur_z);
-//start->setXYZ(0, 0, 1);
+    //start->setXYZ(0, 0, 1);
     start->as<ob::SO3StateSpace::StateType>(1)->setIdentity();
-// start.random();
+    // start.random();
 
 // create a random goal state
     ob::ScopedState<ob::SE3StateSpace> goal(space);
     goal->setXYZ(goal_x,goal_y,goal_z-0.2); //treshold for landing height 0.2
-//goal->setXYZ(-10,6,-2);
+    //goal->setXYZ(-10,6,-2);
 
     goal->as<ob::SO3StateSpace::StateType>(1)->setIdentity();
-//goal.random();
+    //goal.random();
 
 // create a problem instance
     ob::ProblemDefinitionPtr pdef(new ob::ProblemDefinition(si));
 
-
-    std::cout << "start valid: "<<isWaypointValid(start) << std::endl;
-    std::cout << "goal valid: "<<isWaypointValid(goal) << std::endl;
+    std::cout << "start valid: "<< isWaypointValid(start) << std::endl;
+    std::cout << "goal valid: "<< isWaypointValid(goal) << std::endl;
 
 // set the start and goal states
     pdef->setStartAndGoalStates(start, goal);
@@ -346,7 +342,6 @@ void plan(void)
 
 // perform setup steps for the planner
     planner->setup();
-
 
 // print the settings for this space
     si->printSettings(std::cout);
@@ -368,17 +363,15 @@ void plan(void)
         og::PathGeometric* pth = pdef->getSolutionPath()->as<og::PathGeometric>();
         pth->printAsMatrix(std::cout);
 // print the path to screen
-// path->print(std::cout);
+        // path->print(std::cout);
         trajectory_msgs::MultiDOFJointTrajectory msg;
         trajectory_msgs::MultiDOFJointTrajectoryPoint point_msg;
 
         msg.header.stamp = ros::Time::now();
-        msg.header.frame_id = "map";
+        msg.header.frame_id = "world";
         msg.joint_names.clear();
         msg.points.clear();
         msg.joint_names.push_back("Quadcopter");
-
-
 
         for (std::size_t path_idx = 0; path_idx < pth->getStateCount (); path_idx++)
         {
@@ -403,20 +396,16 @@ void plan(void)
             point_msg.transforms[0].rotation.w = rot->w;
 
             msg.points.push_back(point_msg);
-
         }
 
 //Path smoothing using bspline
-
         og::PathSimplifier* pathBSpline = new og::PathSimplifier(si);
         og::PathGeometric path_smooth(dynamic_cast<const og::PathGeometric&>(*pdef->getSolutionPath()));
         pathBSpline->smoothBSpline(path_smooth,5);
         std::cout << "Smoothed Path" << std::endl;
         path_smooth.print(std::cout);
 
-
 //Publish path as markers
-
         visualization_msgs::Marker marker;
         marker.action = visualization_msgs::Marker::DELETEALL;
         spline_pub.publish(marker);
@@ -432,7 +421,7 @@ void plan(void)
 // extract the second component of the state and cast it to what we expect
             const ob::SO3StateSpace::StateType *rot = se3state->as<ob::SO3StateSpace::StateType>(1);
 
-            marker.header.frame_id = "map";
+            marker.header.frame_id = "world";
             marker.header.stamp = ros::Time();
             marker.ns = "path";
             marker.id = idx;
@@ -456,35 +445,32 @@ void plan(void)
 
             std::cout << "Published marker: " <<  path_smooth.getStateCount () << std::endl;
         }
-
-        waypointsCallback1(msg);//call mav_trajectory now
-
+        waypointsCallback(msg);  //call mav_trajectory now
     }
     else
-        std::cout << "No solution found" << std::endl;
+        ROS_WARN("No solution found \n");
 }
 
-void cust_callback(const octomap_msgs::Octomap::ConstPtr &msg,const geometry_msgs::PoseStamped::ConstPtr &pose)
+void cust_callback(const octomap_msgs::Octomap::ConstPtr &msg, const geometry_msgs::PoseStamped::ConstPtr &pose)
 {
     // convert octree to collision object
     octomap::OcTree* tree_oct = dynamic_cast<octomap::OcTree*>(octomap_msgs::msgToMap(*msg));
     fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(tree_oct));
     fcl::CollisionObject temp((std::shared_ptr<fcl::CollisionGeometry>(tree)));
     treeObj = temp;
-    std::cout<<tree_oct;
 
-    ROS_INFO("octomap loaded!! ");
+    ROS_INFO("Octomap loaded! \n");
 
-    double cur_x_g=pose->pose.position.x;
-    double cur_y_g=pose->pose.position.y;
-    double cur_z_g=pose->pose.position.z;
-    //converting to map frame from gazebo frame
+    double cur_x_g = pose->pose.position.x;
+    double cur_y_g = pose->pose.position.y;
+    double cur_z_g = pose->pose.position.z;
+    //converting to world frame from gazebo frame
     cur_x = cur_y_g;   //do necessary conversion if required
     cur_y = cur_x_g;
     cur_z = cur_z_g;
     flag_sub_goal = 1;
 
-    ROS_INFO("current pose loaded!! ");
+    ROS_INFO("Current starting pose loaded: (%f, %f, %f)\n", cur_x, cur_y, cur_z);
 }
 
 void getLandingPoint(const geometry_msgs::Pose &pose)
@@ -492,6 +478,8 @@ void getLandingPoint(const geometry_msgs::Pose &pose)
     goal_x = pose.position.x;
     goal_y = pose.position.y;
     goal_z = pose.position.z;
+
+    ROS_INFO("Landing pose loaded! (%f, %f, %f)\n", goal_x, goal_y, goal_z);
 
     if(flag_sub_goal == 1)
         plan();
@@ -505,21 +493,21 @@ int main(int argc, char **argv)
     ros::Rate r(10);
 
     //ROS Publishers.....
-    vis_pub = n.advertise<visualization_msgs::MarkerArray>( "/spline_marker_array" ,1 , true);
-    spline_pub = n.advertise<visualization_msgs::Marker>( "/visualization_marker_spline", 200, true);
+    vis_pub = n.advertise<visualization_msgs::MarkerArray>( "/trajectory_landing/spline_marker_array" ,1 , true);
+    spline_pub = n.advertise<visualization_msgs::Marker>( "/trajectory_landing/visualization_marker_spline", 200, true);
 
     //ROS SUbscribers.....
     using namespace message_filters;
     message_filters::Subscriber<octomap_msgs::Octomap> oct_sub(n, "/octomap_binary", 1);
-    message_filters::Subscriber<geometry_msgs::PoseStamped> cur_pose_sub(n, "/ground_truth/pose", 1);
+    message_filters::Subscriber<geometry_msgs::PoseStamped> cur_pose_sub(n, "/airsim/pose", 1);
 
     typedef sync_policies::ApproximateTime<octomap_msgs::Octomap, geometry_msgs::PoseStamped> RetrieveSimDataPolicy;
     Synchronizer<RetrieveSimDataPolicy> sync(RetrieveSimDataPolicy(10000), oct_sub, cur_pose_sub);
     sync.registerCallback(boost::bind(&cust_callback, _1, _2));
 
-    ros::Subscriber landing_pose_sub = n.subscribe("/landing_sites_np/clicked_pose", 1, getLandingPoint);
+    ros::Subscriber landing_pose_sub = n.subscribe("/trajectory_landing/clicked_goal_pose", 1, getLandingPoint);
 
-    std::cout << "OMPL version: " << OMPL_VERSION << std::endl;
+    ROS_INFO("OMPL version: %s \n", OMPL_VERSION);
 
     while(ros::ok())
     {

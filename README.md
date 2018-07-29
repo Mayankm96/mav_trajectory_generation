@@ -71,11 +71,11 @@ __NOTE__: To build, follow the steps mentioned later in the documentation.
     Inputs the destination pose to used be as a goal point
 
 #### Publishers
-* `/spline_marker_array` ([visualization_msgs/MarkerArray])
+* `/trajectory_landing/spline_marker_array"` ([visualization_msgs/MarkerArray])
 
     Marker array indicating the jerk free trajectory generated
 
-* `/visualization_marker_spline` ([visualization_msgs/Marker])
+* `/trajectory_landing/visualization_marker_spline` ([visualization_msgs/Marker])
 
     Marker to display the spline trajectory
 
