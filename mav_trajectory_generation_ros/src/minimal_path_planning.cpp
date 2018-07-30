@@ -465,8 +465,8 @@ void cust_callback(const octomap_msgs::Octomap::ConstPtr &msg, const geometry_ms
     double cur_y_g = pose->pose.position.y;
     double cur_z_g = pose->pose.position.z;
     //converting to world frame from gazebo frame
-    cur_x = cur_y_g;   //do necessary conversion if required
-    cur_y = cur_x_g;
+    cur_x = cur_x_g;   //do necessary conversion if required
+    cur_y = cur_y_g;
     cur_z = cur_z_g;
     flag_sub_goal = 1;
 
