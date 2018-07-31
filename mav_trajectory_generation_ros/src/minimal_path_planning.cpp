@@ -295,12 +295,12 @@ void plan(void)
     ob::RealVectorBounds bounds(3);
     // bounds.setLow(-1);
     // bounds.setHigh(1);
-    bounds.setLow(0,-40); //set bounds of area
-    bounds.setHigh(0,40);
-    bounds.setLow(1,-40);
-    bounds.setHigh(1,40);
-    bounds.setLow(2,-15);
-    bounds.setHigh(2,15);
+    bounds.setLow(0,-50); //set bounds of area
+    bounds.setHigh(0,50);
+    bounds.setLow(1,-50);
+    bounds.setHigh(1,50);
+    bounds.setLow(2,-50);
+    bounds.setHigh(2,50);
 
     space->as<ob::SE3StateSpace>()->setBounds(bounds);
 
