@@ -57,8 +57,14 @@ __NOTE__: To build, follow the steps mentioned later in the documentation.
 
 ### [`minimal_path_planning`](src/minimal_path_planning.cpp)
 
+#### Parameter
+* `max_planning_duration` (`double`)
+
+    Maximum duration to carry out planning
+
+
 #### Subscribers
-* `/ground_truth/pose` ([geometry_msgs/PoseStamped])
+* `/airsim/pose` ([geometry_msgs/PoseStamped])
 
     Inputs current pose to use as initial point
 
@@ -66,7 +72,7 @@ __NOTE__: To build, follow the steps mentioned later in the documentation.
 
     Inputs the binary octomap generated to the point the node is run
 
-* `/landing_sites_np/clicked_pose` ([geometry_msgs/Pose])
+* `/trajectory_landing/clicked_goal_pose` ([geometry_msgs/Pose])
 
     Inputs the destination pose to used be as a goal point
 
@@ -75,9 +81,13 @@ __NOTE__: To build, follow the steps mentioned later in the documentation.
 
     Marker array indicating the jerk free trajectory generated
 
-* `/trajectory_landing/visualization_marker_spline` ([visualization_msgs/Marker])
+* `/trajectory_landing/start_pose_marker` ([visualization_msgs/Marker])
 
-    Marker to display the spline trajectory
+    Marker to display the starting pose of the trajectory
+
+* `/trajectory_landing/goal_pose_marker` ([visualization_msgs/Marker])
+
+    Marker to display the goal pose of the trajectory
 
 #### Usage
 

@@ -42,18 +42,23 @@ namespace og = ompl::geometric;
 // Declear some global variables
 trajectory_msgs::MultiDOFJointTrajectoryPoint point_msg;
 trajectory_msgs::MultiDOFJointTrajectoryPoint point_msg_prev;
-float goal_x = 0.0;   //setting some default values
+// goal point
+float goal_x = 0.0;
 float goal_y = 0.0;
 float goal_z = 0.0;
-
-float cur_x = 0.0;   //setting some default values
-float cur_y = 0.0;
-float cur_z = 0.0;
-int flag_sub_goal = 0;
-
+// start point
+float start_x = 0.0;
+float start_y = 0.0;
+float start_z = 0.0;
+// max planning duration
+double max_planning_duration = 10.0;
+// bool flag to check when to start planning
+bool flag_sub_goal = 0;
+// bool flag to check whether to use bounding box as SE(3) space or not
+bool is_bounding_box_flag = 1;
 //ROS publishers
 ros::Publisher vis_pub;
-ros::Publisher spline_pub;
+ros::Publisher start_pub, goal_pub;
 
 std::shared_ptr<fcl::CollisionGeometry> Quadcopter(new fcl::Box(0.3, 0.3, 0.1));//0.3,0.3.0.1
 fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree(0.1)));
@@ -121,7 +126,7 @@ void waypointsCallback( trajectory_msgs::MultiDOFJointTrajectory msg)
     trajectory_msgs::MultiDOFJointTrajectoryPoint point_msg;
     int num_waypoints = int(msg.points.size());
 
-    std::cout << num_waypoints <<"###########################################################"<< std::endl;
+    ROS_INFO_STREAM("######### Number of waypoints present: " << num_waypoints << "#########");
 
     //########define vertices and that ther are 3d
     mav_trajectory_generation::Vertex::Vector vertices;
@@ -129,7 +134,7 @@ void waypointsCallback( trajectory_msgs::MultiDOFJointTrajectory msg)
     const int derivative_to_optimize = mav_trajectory_generation::derivative_order::SNAP;
     mav_trajectory_generation::Vertex start(dimension), middle(dimension), end(dimension);
 
-    if (num_waypoints>1) //valid number of waypoints
+    if (num_waypoints > 1) //valid number of waypoints
     {
         for(int index=0 ; index < num_waypoints ; index++)
         {
@@ -167,16 +172,13 @@ void waypointsCallback( trajectory_msgs::MultiDOFJointTrajectory msg)
                 }
                 temp_point.makeStartOrEnd(Eigen::Vector3d(x,y,z), derivative_to_optimize);
                 vertices.push_back(temp_point);
-
             }
             else
             {
                 temp_point.addConstraint(mav_trajectory_generation::derivative_order::POSITION, Eigen::Vector3d(x,y,z));
                 vertices.push_back(temp_point);
             }
-
         }
-        ROS_INFO("######################: %d", int(vertices.size()));
 
         //##########compute the segment times
 
@@ -185,22 +187,6 @@ void waypointsCallback( trajectory_msgs::MultiDOFJointTrajectory msg)
         const double a_max = 2.0;
         const double magic_fabian_constant = 6.5; // A tuning parameter.
         segment_times = estimateSegmentTimes(vertices, v_max, a_max, magic_fabian_constant);
-
-        // #for linear optimization
-
-        //########## creat an optimizer object and solve
-
-        //const int N = 10;
-        //mav_trajectory_generation::PolynomialOptimization<N> opt(dimension);
-        //opt.setupFromVertices(vertices, segment_times, derivative_to_optimize);
-        //opt.solveLinear();
-
-        //######### obtain the polynomial segment_times
-
-        //mav_trajectory_generation::Segment::Vector segments;
-        //opt.getSegments(&segments);
-
-        //#for non linear Polynomial Optimization
 
         //#######set the parameters for nonlinear Optimization
 
@@ -266,104 +252,142 @@ void waypointsCallback( trajectory_msgs::MultiDOFJointTrajectory msg)
 
         uint32_t iteration = 0;
 
-        // while(1)
-        {
-            visualization_msgs::MarkerArray markers;
-            double distance = 4.0; // Distance by which to seperate additional markers. Set 0.0 to disable.
-            std::string frame_id = "world";
+        visualization_msgs::MarkerArray markers;
+        double distance = 4.0;  // Distance by which to seperate additional markers. Set 0.0 to disable.
+        std::string frame_id = "world";
 
-            // From Trajectory class:
-            mav_trajectory_generation::drawMavTrajectory(trajectory, distance, frame_id, &markers);
+        // From Trajectory class:
+        mav_trajectory_generation::drawMavTrajectory(trajectory, distance, frame_id, &markers);
 
-            // From mav_msgs::EigenTrajectoryPoint::Vector states:
-            mav_trajectory_generation::drawMavSampledTrajectory(states, distance, frame_id, &markers);
+        // From mav_msgs::EigenTrajectoryPoint::Vector states:
+        mav_trajectory_generation::drawMavSampledTrajectory(states, distance, frame_id, &markers);
 
-            vis_pub.publish(markers);
-            //ros::Duration(3).sleep(); //Plan next trajectory only after three seconds
-            //break;
-            //ros::spin();
-        }
+        vis_pub.publish(markers);
     }
 }
 
-void plan(void)
+visualization_msgs::Marker get_extreme_points_marker_from_position(float x, float y, float z, ros::Time timestamp, bool is_goal = 0)
 {
-// construct the state space we are planning in
+  visualization_msgs::Marker marker;
+
+  marker.header.frame_id = "world";
+  marker.header.stamp = timestamp;
+  marker.ns = "path";
+  marker.type = visualization_msgs::Marker::CUBE;
+  marker.action = visualization_msgs::Marker::ADD;
+  marker.pose.position.x = x;
+  marker.pose.position.y = y;
+  marker.pose.position.z = z;
+  marker.pose.orientation.x = 0;
+  marker.pose.orientation.y = 0;
+  marker.pose.orientation.z = 0;
+  marker.pose.orientation.w = 1;
+  marker.scale.x = 0.3;
+  marker.scale.y = 0.3;
+  marker.scale.z = 0.3;
+
+  if(is_goal)
+  {
+    // if goal point
+    marker.id = 1;
+    marker.color.a = 1.0;
+    marker.color.r = 1.0;
+    marker.color.g = 0.0;
+    marker.color.b = 0.0;
+  }
+  else
+  {
+    // if start point
+    marker.id = 0;
+    marker.color.a = 1.0;
+    marker.color.r = 0.0;
+    marker.color.g = 1.0;
+    marker.color.b = 0.0;
+  }
+  return marker;
+}
+
+void plan_path_to_goal()
+{
+    // construct the state space we are planning in
     ob::StateSpacePtr space(new ob::SE3StateSpace());
 
-// set the bounds for the R^3 part of SE(3)
+    // set the bounds for the R^3 part of SE(3)
     ob::RealVectorBounds bounds(3);
-    // bounds.setLow(-1);
-    // bounds.setHigh(1);
-    bounds.setLow(0,-50); //set bounds of area
-    bounds.setHigh(0,50);
-    bounds.setLow(1,-50);
-    bounds.setHigh(1,50);
-    bounds.setLow(2,-50);
-    bounds.setHigh(2,50);
+
+    if(! is_bounding_box_flag)
+    {
+      // for infinite bounding box
+      bounds.setLow(-1);
+      bounds.setHigh(1);
+    }
+    else
+    {
+      // for finite bounding area
+      bounds.setLow(0,-50);
+      bounds.setHigh(0,50);
+      bounds.setLow(1,-50);
+      bounds.setHigh(1,50);
+      bounds.setLow(2,-50);
+      bounds.setHigh(2,50);
+    }
 
     space->as<ob::SE3StateSpace>()->setBounds(bounds);
 
-// construct an instance of  space information from this state space
+    // construct an instance of  space information from this state space
     ob::SpaceInformationPtr si(new ob::SpaceInformation(space));
 
-// set state validity checking for this space
+    // set state validity checking for this space
     si->setStateValidityChecker(std::bind(&isStateValid, std::placeholders::_1));
 
-// create a random start state
+    // create the start state
     ob::ScopedState<ob::SE3StateSpace> start(space);
-    start->setXYZ(cur_x,cur_y,cur_z);
-    //start->setXYZ(0, 0, 1);
+    start->setXYZ(start_x, start_y, start_z);
     start->as<ob::SO3StateSpace::StateType>(1)->setIdentity();
-    // start.random();
 
-// create a random goal state
+    // create a goal state
     ob::ScopedState<ob::SE3StateSpace> goal(space);
-    goal->setXYZ(goal_x,goal_y,goal_z-0.2); //treshold for landing height 0.2
-    //goal->setXYZ(-10,6,-2);
-
+    goal->setXYZ(goal_x, goal_y, goal_z - 0.2);   //treshold for landing height 0.2
     goal->as<ob::SO3StateSpace::StateType>(1)->setIdentity();
-    //goal.random();
 
-// create a problem instance
+    // create a problem instance
     ob::ProblemDefinitionPtr pdef(new ob::ProblemDefinition(si));
 
-    std::cout << "start valid: "<< isWaypointValid(start) << std::endl;
-    std::cout << "goal valid: "<< isWaypointValid(goal) << std::endl;
+    // check the validity of chosen states
+    ROS_INFO_STREAM("Vailidity of start point: " << isWaypointValid(start));
+    ROS_INFO_STREAM("Vailidity of goal point: " << isWaypointValid(goal));
 
-// set the start and goal states
+    // set the start and goal states
     pdef->setStartAndGoalStates(start, goal);
 
-// create a planner for the defined space
+    // create a planner for the defined space
     ob::PlannerPtr planner(new og::RRTstar(si));
 
-// set the problem we are trying to solve for the planner
+    // set the problem we are trying to solve for the planner
     planner->setProblemDefinition(pdef);
 
-// perform setup steps for the planner
+    // perform setup steps for the planner
     planner->setup();
 
-// print the settings for this space
+    // print the settings for this space
     si->printSettings(std::cout);
 
-// print the problem settings
+    // print the problem settings
     pdef->print(std::cout);
 
-// attempt to solve the problem within one second of planning time
-    ob::PlannerStatus solved = planner->solve(4.0);
+    // attempt to solve the problem within one second of planning time
+    ob::PlannerStatus solved = planner->solve(max_planning_duration);
 
-
-    std::cout << "Reached 2: " << std::endl;
     if (solved && isWaypointValid(start) && isWaypointValid(goal) && !pdef->hasApproximateSolution())
     {
-// get the goal representation from the problem definition (not the same as the goal state)
-// and inquire about the found path
-        std::cout << "Found solution:" << std::endl;
+        // get the goal representation from the problem definition (not the same as the goal state)
+        // and inquire about the found path
+        ROS_INFO("Found solution:");
         ob::PathPtr path = pdef->getSolutionPath();
         og::PathGeometric* pth = pdef->getSolutionPath()->as<og::PathGeometric>();
+
+        // print the path to screen
         pth->printAsMatrix(std::cout);
-// print the path to screen
-        // path->print(std::cout);
         trajectory_msgs::MultiDOFJointTrajectory msg;
         trajectory_msgs::MultiDOFJointTrajectoryPoint point_msg;
 
@@ -371,16 +395,16 @@ void plan(void)
         msg.header.frame_id = "world";
         msg.joint_names.clear();
         msg.points.clear();
-        msg.joint_names.push_back("Quadcopter");
+        msg.joint_names.push_back("quadcopter");
 
         for (std::size_t path_idx = 0; path_idx < pth->getStateCount (); path_idx++)
         {
             const ob::SE3StateSpace::StateType *se3state = pth->getState(path_idx)->as<ob::SE3StateSpace::StateType>();
 
-// extract the first component of the state and cast it to what we expect
+            // extract the first component of the state and cast it to what we expect
             const ob::RealVectorStateSpace::StateType *pos = se3state->as<ob::RealVectorStateSpace::StateType>(0);
 
-// extract the second component of the state and cast it to what we expect
+            // extract the second component of the state and cast it to what we expect
             const ob::SO3StateSpace::StateType *rot = se3state->as<ob::SO3StateSpace::StateType>(1);
 
             point_msg.time_from_start.fromSec(ros::Time::now().toSec());
@@ -398,57 +422,13 @@ void plan(void)
             msg.points.push_back(point_msg);
         }
 
-//Path smoothing using bspline
-        og::PathSimplifier* pathBSpline = new og::PathSimplifier(si);
-        og::PathGeometric path_smooth(dynamic_cast<const og::PathGeometric&>(*pdef->getSolutionPath()));
-        pathBSpline->smoothBSpline(path_smooth,5);
-        std::cout << "Smoothed Path" << std::endl;
-        path_smooth.print(std::cout);
-
-//Publish path as markers
-        visualization_msgs::Marker marker;
-        marker.action = visualization_msgs::Marker::DELETEALL;
-        spline_pub.publish(marker);
-
-        for (std::size_t idx = 0; idx < path_smooth.getStateCount (); idx++)
-        {
-// cast the abstract state type to the type we expect
-            const ob::SE3StateSpace::StateType *se3state = path_smooth.getState(idx)->as<ob::SE3StateSpace::StateType>();
-
-// extract the first component of the state and cast it to what we expect
-            const ob::RealVectorStateSpace::StateType *pos = se3state->as<ob::RealVectorStateSpace::StateType>(0);
-
-// extract the second component of the state and cast it to what we expect
-            const ob::SO3StateSpace::StateType *rot = se3state->as<ob::SO3StateSpace::StateType>(1);
-
-            marker.header.frame_id = "world";
-            marker.header.stamp = ros::Time();
-            marker.ns = "path";
-            marker.id = idx;
-            marker.type = visualization_msgs::Marker::CUBE;
-            marker.action = visualization_msgs::Marker::ADD;
-            marker.pose.position.x = pos->values[0];
-            marker.pose.position.y = pos->values[1];
-            marker.pose.position.z = pos->values[2];
-            marker.pose.orientation.x = rot->x;
-            marker.pose.orientation.y = rot->y;
-            marker.pose.orientation.z = rot->z;
-            marker.pose.orientation.w = rot->w;
-            marker.scale.x = 0.3;
-            marker.scale.y = 0.3;
-            marker.scale.z = 0.3;
-            marker.color.a = 1.0;
-            marker.color.r = 0.0;
-            marker.color.g = 1.0;
-            marker.color.b = 0.0;
-            spline_pub.publish(marker);
-
-            std::cout << "Published marker: " <<  path_smooth.getStateCount () << std::endl;
-        }
-        waypointsCallback(msg);  //call mav_trajectory now
+        //call mav_trajectory now
+        waypointsCallback(msg);
     }
     else
-        ROS_WARN("No solution found \n");
+    {
+      ROS_WARN("No solution found");
+    }
 }
 
 void cust_callback(const octomap_msgs::Octomap::ConstPtr &msg, const geometry_msgs::PoseStamped::ConstPtr &pose)
@@ -459,61 +439,67 @@ void cust_callback(const octomap_msgs::Octomap::ConstPtr &msg, const geometry_ms
     fcl::CollisionObject temp((std::shared_ptr<fcl::CollisionGeometry>(tree)));
     treeObj = temp;
 
-    ROS_INFO("Octomap loaded! \n");
+    ROS_DEBUG("Octomap loaded!");
 
-    double cur_x_g = pose->pose.position.x;
-    double cur_y_g = pose->pose.position.y;
-    double cur_z_g = pose->pose.position.z;
-    //converting to world frame from gazebo frame
-    cur_x = cur_x_g;   //do necessary conversion if required
-    cur_y = cur_y_g;
-    cur_z = cur_z_g;
+    start_x = pose->pose.position.x;
+    start_y = pose->pose.position.y;
+    start_z = pose->pose.position.z;
+
     flag_sub_goal = 1;
 
-    ROS_INFO("Current starting pose loaded: (%f, %f, %f)\n", cur_x, cur_y, cur_z);
+    ROS_DEBUG("Current starting pose loaded: (%f, %f, %f)", start_x, start_y, start_z);
 }
 
-void getLandingPoint(const geometry_msgs::Pose &pose)
+void get_landing_point_callback(const geometry_msgs::Pose &pose)
 {
     goal_x = pose.position.x;
     goal_y = pose.position.y;
     goal_z = pose.position.z;
 
-    ROS_INFO("Landing pose loaded! (%f, %f, %f)\n", goal_x, goal_y, goal_z);
+    ROS_INFO("Landing pose loaded: (%f, %f, %f)", goal_x, goal_y, goal_z);
 
     if(flag_sub_goal == 1)
-        plan();
+    {
+      // create markers for starting and ending point_msg
+      visualization_msgs::Marker start_marker_msg = get_extreme_points_marker_from_position(start_x, start_y, start_z, ros::Time(), 0);
+      visualization_msgs::Marker goal_marker_msg = get_extreme_points_marker_from_position(goal_x, goal_y, goal_z, ros::Time(), 1);
+      // publish extreme points
+      start_pub.publish(start_marker_msg);
+      goal_pub.publish(goal_marker_msg);
+      // plan trajectory
+      plan_path_to_goal();
+    }
 }
 
 int main(int argc, char **argv)
 {
-    //init ROS......
-    ros::init(argc, argv, "octomap_planner");
-    ros::NodeHandle n;
-    ros::Rate r(10);
+    // init ROS......
+    ros::init(argc, argv, "eth_mav_octomap_planner");
+    ros::NodeHandle nh("~");
 
-    //ROS Publishers.....
-    vis_pub = n.advertise<visualization_msgs::MarkerArray>( "/trajectory_landing/spline_marker_array" ,1 , true);
-    spline_pub = n.advertise<visualization_msgs::Marker>( "/trajectory_landing/visualization_marker_spline", 200, true);
+    // Read paramters.....
+    nh.param<double>("max_planning_duration", max_planning_duration, 5.0);
+    nh.param<bool>("is_bounding_box_flag", is_bounding_box_flag, true);
 
-    //ROS SUbscribers.....
+    // ROS Publishers.....
+    vis_pub = nh.advertise<visualization_msgs::MarkerArray>( "/trajectory_landing/spline_marker_array" ,1 , true);
+    start_pub = nh.advertise<visualization_msgs::Marker>( "/trajectory_landing/start_pose_marker", 1, true);
+    goal_pub = nh.advertise<visualization_msgs::Marker>( "/trajectory_landing/goal_pose_marker", 1, true);
+
+    // ROS SUbscribers.....
     using namespace message_filters;
-    message_filters::Subscriber<octomap_msgs::Octomap> oct_sub(n, "/octomap_binary", 1);
-    message_filters::Subscriber<geometry_msgs::PoseStamped> cur_pose_sub(n, "/airsim/pose", 1);
+    message_filters::Subscriber<octomap_msgs::Octomap> oct_sub(nh, "/octomap_binary", 1);
+    message_filters::Subscriber<geometry_msgs::PoseStamped> cur_pose_sub(nh, "/airsim/pose", 1);
 
     typedef sync_policies::ApproximateTime<octomap_msgs::Octomap, geometry_msgs::PoseStamped> RetrieveSimDataPolicy;
     Synchronizer<RetrieveSimDataPolicy> sync(RetrieveSimDataPolicy(10000), oct_sub, cur_pose_sub);
     sync.registerCallback(boost::bind(&cust_callback, _1, _2));
 
-    ros::Subscriber landing_pose_sub = n.subscribe("/trajectory_landing/clicked_goal_pose", 1, getLandingPoint);
+    ros::Subscriber landing_pose_sub = nh.subscribe("/trajectory_landing/clicked_goal_pose", 1, get_landing_point_callback);
 
     ROS_INFO("OMPL version: %s \n", OMPL_VERSION);
 
-    while(ros::ok())
-    {
-        ros::spinOnce();
-        r.sleep();
-    }
+    ros::spin();
 
     return 0;
 }
