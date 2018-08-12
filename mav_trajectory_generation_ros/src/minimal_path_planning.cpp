@@ -431,7 +431,7 @@ void plan_path_to_goal()
     }
 }
 
-void cust_callback(const octomap_msgs::Octomap::ConstPtr &msg, const geometry_msgs::PoseStamped::ConstPtr &pose)
+void cust_callback(const octomap_msgs::Octomap::ConstPtr &msg)
 {
     // convert octree to collision object
     octomap::OcTree* tree_oct = dynamic_cast<octomap::OcTree*>(octomap_msgs::msgToMap(*msg));
@@ -439,22 +439,23 @@ void cust_callback(const octomap_msgs::Octomap::ConstPtr &msg, const geometry_ms
     fcl::CollisionObject temp((std::shared_ptr<fcl::CollisionGeometry>(tree)));
     treeObj = temp;
 
-    ROS_DEBUG("Octomap loaded!");
-
-    start_x = pose->pose.position.x;
-    start_y = pose->pose.position.y;
-    start_z = pose->pose.position.z;
+    ROS_INFO("Octomap loaded!");
 
     flag_sub_goal = 1;
-
-    ROS_DEBUG("Current starting pose loaded: (%f, %f, %f)", start_x, start_y, start_z);
 }
 
-void get_landing_point_callback(const geometry_msgs::Pose &pose)
+void get_landing_point_callback(const geometry_msgs::PoseStamped::ConstPtr &start_pose, const geometry_msgs::PoseStamped::ConstPtr &land_pose)
 {
-    goal_x = pose.position.x;
-    goal_y = pose.position.y;
-    goal_z = pose.position.z;
+
+    start_x = start_pose->pose.position.x;
+    start_y = start_pose->pose.position.y;
+    start_z = start_pose->pose.position.z;
+
+    ROS_INFO("Current starting pose loaded: (%f, %f, %f)", start_x, start_y, start_z);
+
+    goal_x = land_pose->pose.position.x;
+    goal_y = land_pose->pose.position.y;
+    goal_z = land_pose->pose.position.z;
 
     ROS_INFO("Landing pose loaded: (%f, %f, %f)", goal_x, goal_y, goal_z);
 
@@ -487,15 +488,25 @@ int main(int argc, char **argv)
     goal_pub = nh.advertise<visualization_msgs::Marker>( "/trajectory_landing/goal_pose_marker", 1, true);
 
     // ROS SUbscribers.....
+    // using namespace message_filters;
+    // message_filters::Subscriber<octomap_msgs::Octomap> oct_sub(nh, "/octomap_binary", 1);
+    // message_filters::Subscriber<geometry_msgs::PoseStamped> cur_pose_sub(nh, "/airsim/pose", 1);
+    //
+    // typedef sync_policies::ApproximateTime<octomap_msgs::Octomap, geometry_msgs::PoseStamped> RetrieveSimDataPolicy;
+    // Synchronizer<RetrieveSimDataPolicy> sync(RetrieveSimDataPolicy(10000), oct_sub, cur_pose_sub);
+    // sync.registerCallback(boost::bind(&cust_callback, _1, _2));
+    //
+    // ros::Subscriber landing_pose_sub = nh.subscribe("/trajectory_landing/clicked_goal_pose", 1, get_landing_point_callback);
+
+    ros::Subscriber oct_sub = nh.subscribe("/octomap_binary", 1, cust_callback);
+
     using namespace message_filters;
-    message_filters::Subscriber<octomap_msgs::Octomap> oct_sub(nh, "/octomap_binary", 1);
     message_filters::Subscriber<geometry_msgs::PoseStamped> cur_pose_sub(nh, "/airsim/pose", 1);
+    message_filters::Subscriber<geometry_msgs::PoseStamped> landing_pose_sub(nh, "/trajectory_landing/clicked_goal_pose", 1);
 
-    typedef sync_policies::ApproximateTime<octomap_msgs::Octomap, geometry_msgs::PoseStamped> RetrieveSimDataPolicy;
-    Synchronizer<RetrieveSimDataPolicy> sync(RetrieveSimDataPolicy(10000), oct_sub, cur_pose_sub);
-    sync.registerCallback(boost::bind(&cust_callback, _1, _2));
-
-    ros::Subscriber landing_pose_sub = nh.subscribe("/trajectory_landing/clicked_goal_pose", 1, get_landing_point_callback);
+    typedef sync_policies::ApproximateTime<geometry_msgs::PoseStamped, geometry_msgs::PoseStamped> RetrieveSimDataPolicy;
+    Synchronizer<RetrieveSimDataPolicy> sync(RetrieveSimDataPolicy(10000), cur_pose_sub, landing_pose_sub);
+    sync.registerCallback(boost::bind(&get_landing_point_callback, _1, _2));
 
     ROS_INFO("OMPL version: %s \n", OMPL_VERSION);
 
