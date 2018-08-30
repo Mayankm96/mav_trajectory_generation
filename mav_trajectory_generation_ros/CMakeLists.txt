@@ -51,6 +51,20 @@ target_link_libraries(minimal_path_planning
   fcl
 )
 
+cs_add_executable(spline_planning
+  src/spline_planning.cpp
+)
+
+target_link_libraries(spline_planning
+  ${PROJECT_NAME}
+  ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
+  ${fcl_LIBRARIES}
+  ${OMPL_LIBRARIES}
+  fcl
+)
+
 #########
 # TESTS #
 #########

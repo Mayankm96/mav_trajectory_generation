@@ -1,3 +1,4 @@
+
 #include "ros/ros.h"
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
@@ -10,6 +11,7 @@
 #include <trajectory_msgs/MultiDOFJointTrajectory.h>
 #include <nav_msgs/Odometry.h>
 #include <geometry_msgs/PoseArray.h>
+#include <geometry_msgs/TransformStamped.h>
 #include <geometry_msgs/Pose.h>
 
 #include <ompl/base/spaces/SE3StateSpace.h>
@@ -36,76 +38,80 @@
 #include <mav_trajectory_generation/trajectory_sampling.h>
 #include <mav_trajectory_generation_ros/ros_visualization.h>
 
+#include <std_srvs/Empty.h>
+
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
 
 // Declear some global variables
+
 trajectory_msgs::MultiDOFJointTrajectoryPoint point_msg;
 trajectory_msgs::MultiDOFJointTrajectoryPoint point_msg_prev;
-// goal point
-float goal_x = 0.0;
+float goal_x = 0.0; //setting some default values
 float goal_y = 0.0;
 float goal_z = 0.0;
-// start point
-float start_x = 0.0;
+
+float start_x = 0.0; //setting some default values
 float start_y = 0.0;
 float start_z = 0.0;
+
+bool flag_sub_octomap = 0;
+int flag_sub_goal = 0;
+
 // max planning duration
 double max_planning_duration = 10.0;
-// bool flag to check when to start planning
-bool flag_sub_goal = 0;
-// bool flag to check whether to use bounding box as SE(3) space or not
-bool is_bounding_box_flag = 1;
-//ROS publishers
-ros::Publisher vis_pub;
-ros::Publisher start_pub, goal_pub;
 
-std::shared_ptr<fcl::CollisionGeometry> Quadcopter(new fcl::Box(0.3, 0.3, 0.1));//0.3,0.3.0.1
-// std::shared_ptr<fcl::CollisionGeometry> Quadcopter(new fcl::Box(0.01, 0.01, 0.01));//0.3,0.3.0.1
+//ROS publishers
+ros::Publisher start_pub, goal_pub;
+ros::Publisher vis_pub;
+ros::Publisher spline_pub;
+ros::Publisher traj_pub;
+
+std::shared_ptr<fcl::CollisionGeometry> Quadcopter(new fcl::Box(0.4, 0.4, 0.1)); //0.3,0.3.0.1
 fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree(0.1)));
 fcl::CollisionObject treeObj((std::shared_ptr<fcl::CollisionGeometry>(tree)));
 fcl::CollisionObject aircraftObject(Quadcopter);
 
-bool isStateValid(const ob::State *state)
+bool isStateValid(const ob::State* state)
 {
     // cast the abstract state type to the type we expect
-    const ob::SE3StateSpace::StateType *se3state = state->as<ob::SE3StateSpace::StateType>();
+    const ob::SE3StateSpace::StateType* se3state = state->as<ob::SE3StateSpace::StateType>();
 
     // extract the first component of the state and cast it to what we expect
-    const ob::RealVectorStateSpace::StateType *pos = se3state->as<ob::RealVectorStateSpace::StateType>(0);
+    const ob::RealVectorStateSpace::StateType* pos = se3state->as<ob::RealVectorStateSpace::StateType>(0);
 
     // extract the second component of the state and cast it to what we expect
-    const ob::SO3StateSpace::StateType *rot = se3state->as<ob::SO3StateSpace::StateType>(1);
+    const ob::SO3StateSpace::StateType* rot = se3state->as<ob::SO3StateSpace::StateType>(1);
 
     // check validity of state Fdefined by pos & rot
-    fcl::Vec3f translation(pos->values[0],pos->values[1],pos->values[2]);
+    fcl::Vec3f translation(pos->values[0], pos->values[1], pos->values[2]);
     fcl::Quaternion3f rotation(rot->w, rot->x, rot->y, rot->z);
     aircraftObject.setTransform(rotation, translation);
-    fcl::CollisionRequest requestType(1,false,1,false);
+    fcl::CollisionRequest requestType(1, false, 1, false);
     fcl::CollisionResult collisionResult;
     fcl::collide(&aircraftObject, &treeObj, requestType, collisionResult);
 
-    return(!collisionResult.isCollision());
+    return (!collisionResult.isCollision());
 }
 
-bool isWaypointValid(const ob::ScopedState<ob::SE3StateSpace> &se3state)
+bool isWaypointValid(const ob::ScopedState<ob::SE3StateSpace>& se3state)
 {
 
     // extract the first component of the state and cast it to what we expect
-    const ob::RealVectorStateSpace::StateType *pos = se3state->as<ob::RealVectorStateSpace::StateType>(0);
+    const ob::RealVectorStateSpace::StateType* pos = se3state->as<ob::RealVectorStateSpace::StateType>(0);
 
     // extract the second component of the state and cast it to what we expect
-    const ob::SO3StateSpace::StateType *rot = se3state->as<ob::SO3StateSpace::StateType>(1);
+    const ob::SO3StateSpace::StateType* rot = se3state->as<ob::SO3StateSpace::StateType>(1);
 
     // check validity of state Fdefined by pos & rot
-    fcl::Vec3f translation(pos->values[0],pos->values[1],pos->values[2]);
+    fcl::Vec3f translation(pos->values[0], pos->values[1], pos->values[2]);
     fcl::Quaternion3f rotation(rot->w, rot->x, rot->y, rot->z);
     aircraftObject.setTransform(rotation, translation);
-    fcl::CollisionRequest requestType(1,false,1,false);
+    fcl::CollisionRequest requestType(1, false, 1, false);
     fcl::CollisionResult collisionResult;
     fcl::collide(&aircraftObject, &treeObj, requestType, collisionResult);
 
-    return(!collisionResult.isCollision());
+    return (!collisionResult.isCollision());
 }
 
 ob::OptimizationObjectivePtr getThresholdPathLengthObj(const ob::SpaceInformationPtr& si)
@@ -122,7 +128,7 @@ ob::OptimizationObjectivePtr getPathLengthObjWithCostToGo(const ob::SpaceInforma
     return obj;
 }
 
-void waypointsCallback( trajectory_msgs::MultiDOFJointTrajectory msg)
+void waypointsCallback(trajectory_msgs::MultiDOFJointTrajectory msg)
 {
     trajectory_msgs::MultiDOFJointTrajectoryPoint point_msg;
     int num_waypoints = int(msg.points.size());
@@ -308,30 +314,23 @@ visualization_msgs::Marker get_extreme_points_marker_from_position(float x, floa
   return marker;
 }
 
-void plan_path_to_goal()
+
+void plan(void)
 {
     // construct the state space we are planning in
     ob::StateSpacePtr space(new ob::SE3StateSpace());
 
     // set the bounds for the R^3 part of SE(3)
     ob::RealVectorBounds bounds(3);
-
-    if(! is_bounding_box_flag)
-    {
-      // for infinite bounding box
-      bounds.setLow(-1);
-      bounds.setHigh(1);
-    }
-    else
-    {
-      // for finite bounding area
-      bounds.setLow(0,-50);
-      bounds.setHigh(0,50);
-      bounds.setLow(1,-50);
-      bounds.setHigh(1,50);
-      bounds.setLow(2,-50);
-      bounds.setHigh(2,50);
-    }
+    // bounds.setLow(-1);
+    // bounds.setHigh(1);
+    // for finite bounding area
+    bounds.setLow(0,-50);
+    bounds.setHigh(0,50);
+    bounds.setLow(1,-50);
+    bounds.setHigh(1,50);
+    bounds.setLow(2,-50);
+    bounds.setHigh(2,50);
 
     space->as<ob::SE3StateSpace>()->setBounds(bounds);
 
@@ -341,14 +340,16 @@ void plan_path_to_goal()
     // set state validity checking for this space
     si->setStateValidityChecker(std::bind(&isStateValid, std::placeholders::_1));
 
-    // create the start state
+    // create a random start state
     ob::ScopedState<ob::SE3StateSpace> start(space);
     start->setXYZ(start_x, start_y, start_z);
+    //start->setXYZ(0, 0, 2);
     start->as<ob::SO3StateSpace::StateType>(1)->setIdentity();
+    // start.random();
 
-    // create a goal state
+    // create a random goal state
     ob::ScopedState<ob::SE3StateSpace> goal(space);
-    goal->setXYZ(goal_x, goal_y, goal_z);   //treshold for landing height 0.2
+    goal->setXYZ(goal_x, goal_y, goal_z + 0.2); //treshold for landing height 0.2
     goal->as<ob::SO3StateSpace::StateType>(1)->setIdentity();
 
     // create a problem instance
@@ -379,8 +380,7 @@ void plan_path_to_goal()
     // attempt to solve the problem within one second of planning time
     ob::PlannerStatus solved = planner->solve(max_planning_duration);
 
-    if (solved && isWaypointValid(start) && isWaypointValid(goal) && !pdef->hasApproximateSolution())
-    {
+    if (solved && isWaypointValid(start) && isWaypointValid(goal) && !pdef->hasApproximateSolution()) {
         // get the goal representation from the problem definition (not the same as the goal state)
         // and inquire about the found path
         ROS_INFO("Found solution:");
@@ -398,20 +398,20 @@ void plan_path_to_goal()
         msg.points.clear();
         msg.joint_names.push_back("quadcopter");
 
-        for (std::size_t path_idx = 0; path_idx < pth->getStateCount (); path_idx++)
+        for (std::size_t path_idx = 0; path_idx < pth->getStateCount(); path_idx++)
         {
-            const ob::SE3StateSpace::StateType *se3state = pth->getState(path_idx)->as<ob::SE3StateSpace::StateType>();
+            const ob::SE3StateSpace::StateType* se3state = pth->getState(path_idx)->as<ob::SE3StateSpace::StateType>();
 
             // extract the first component of the state and cast it to what we expect
-            const ob::RealVectorStateSpace::StateType *pos = se3state->as<ob::RealVectorStateSpace::StateType>(0);
+            const ob::RealVectorStateSpace::StateType* pos = se3state->as<ob::RealVectorStateSpace::StateType>(0);
 
             // extract the second component of the state and cast it to what we expect
-            const ob::SO3StateSpace::StateType *rot = se3state->as<ob::SO3StateSpace::StateType>(1);
+            const ob::SO3StateSpace::StateType* rot = se3state->as<ob::SO3StateSpace::StateType>(1);
 
             point_msg.time_from_start.fromSec(ros::Time::now().toSec());
             point_msg.transforms.resize(1);
 
-            point_msg.transforms[0].translation.x= pos->values[0];
+            point_msg.transforms[0].translation.x = pos->values[0];
             point_msg.transforms[0].translation.y = pos->values[1];
             point_msg.transforms[0].translation.z = pos->values[2];
 
@@ -425,11 +425,61 @@ void plan_path_to_goal()
 
         //call mav_trajectory now
         waypointsCallback(msg);
+
+        //Path smoothing using bspline
+        og::PathSimplifier* pathBSpline = new og::PathSimplifier(si);
+        og::PathGeometric path_smooth(dynamic_cast<const og::PathGeometric&>(*pdef->getSolutionPath()));
+        pathBSpline->smoothBSpline(path_smooth, 5);
+        std::cout << "Smoothed Path" << std::endl;
+        path_smooth.print(std::cout);
+
+        //Publish path as markers
+
+        visualization_msgs::Marker marker;
+        marker.action = visualization_msgs::Marker::DELETEALL;
+    		spline_pub.publish(marker);
+
+        for (std::size_t idx = 0; idx < path_smooth.getStateCount(); idx++)
+        {
+            // cast the abstract state type to the type we expect
+            const ob::SE3StateSpace::StateType* se3state = path_smooth.getState(idx)->as<ob::SE3StateSpace::StateType>();
+
+            // extract the first component of the state and cast it to what we expect
+            const ob::RealVectorStateSpace::StateType* pos = se3state->as<ob::RealVectorStateSpace::StateType>(0);
+
+            // extract the second component of the state and cast it to what we expect
+            const ob::SO3StateSpace::StateType* rot = se3state->as<ob::SO3StateSpace::StateType>(1);
+
+            marker.header.frame_id = "world";
+            marker.header.stamp = ros::Time();
+            marker.ns = "path";
+            marker.id = idx;
+            marker.type = visualization_msgs::Marker::CUBE;
+            marker.action = visualization_msgs::Marker::ADD;
+            marker.pose.position.x = pos->values[0];
+            marker.pose.position.y = pos->values[1];
+            marker.pose.position.z = pos->values[2];
+            marker.pose.orientation.x = rot->x;
+            marker.pose.orientation.y = rot->y;
+            marker.pose.orientation.z = rot->z;
+            marker.pose.orientation.w = rot->w;
+            marker.scale.x = 0.1;
+            marker.scale.y = 0.1;
+            marker.scale.z = 0.1;
+            marker.color.a = 1.0;
+            marker.color.r = 1.0;
+            marker.color.g = 1.0;
+            marker.color.b = 1.0;
+            spline_pub.publish(marker);
+        }
+
+        ROS_INFO_STREAM("Published markers: " << path_smooth.getStateCount());
+
+        // publish trajectory
+        traj_pub.publish(msg);
     }
     else
-    {
       ROS_WARN("No solution found");
-    }
 }
 
 void cust_callback(const octomap_msgs::Octomap::ConstPtr &msg)
@@ -439,77 +489,68 @@ void cust_callback(const octomap_msgs::Octomap::ConstPtr &msg)
     fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(tree_oct));
     fcl::CollisionObject temp((std::shared_ptr<fcl::CollisionGeometry>(tree)));
     treeObj = temp;
+    std::cout << tree_oct;
 
-    ROS_INFO("Octomap loaded!");
+    ROS_INFO("octomap loaded! ");
 
     flag_sub_goal = 1;
 }
 
 void get_landing_point_callback(const geometry_msgs::PoseStamped::ConstPtr &start_pose, const geometry_msgs::PoseStamped::ConstPtr &land_pose)
 {
+  start_x = start_pose->pose.position.x;
+  start_y = start_pose->pose.position.y;
+  start_z = start_pose->pose.position.z;
 
-    start_x = start_pose->pose.position.x;
-    start_y = start_pose->pose.position.y;
-    start_z = start_pose->pose.position.z;
+  ROS_INFO("Current starting pose loaded: (%f, %f, %f)", start_x, start_y, start_z);
 
-    ROS_INFO("Current starting pose loaded: (%f, %f, %f)", start_x, start_y, start_z);
+  goal_x = land_pose->pose.position.x;
+  goal_y = land_pose->pose.position.y;
+  goal_z = land_pose->pose.position.z;
 
-    goal_x = land_pose->pose.position.x;
-    goal_y = land_pose->pose.position.y;
-    goal_z = land_pose->pose.position.z;
+  ROS_INFO("Landing pose loaded: (%f, %f, %f)", goal_x, goal_y, goal_z);
 
-    ROS_INFO("Landing pose loaded: (%f, %f, %f)", goal_x, goal_y, goal_z);
-
-    if(flag_sub_goal == 1)
-    {
-      // create markers for starting and ending point_msg
-      visualization_msgs::Marker start_marker_msg = get_extreme_points_marker_from_position(start_x, start_y, start_z, ros::Time(), 0);
-      visualization_msgs::Marker goal_marker_msg = get_extreme_points_marker_from_position(goal_x, goal_y, goal_z, ros::Time(), 1);
-      // publish extreme points
-      start_pub.publish(start_marker_msg);
-      goal_pub.publish(goal_marker_msg);
-      // plan trajectory
-      plan_path_to_goal();
-    }
+  if (flag_sub_goal == 1)
+  {
+    // create markers for starting and ending point_msg
+    visualization_msgs::Marker start_marker_msg = get_extreme_points_marker_from_position(start_x, start_y, start_z, ros::Time(), 0);
+    visualization_msgs::Marker goal_marker_msg = get_extreme_points_marker_from_position(goal_x, goal_y, goal_z, ros::Time(), 1);
+    // publish extreme points
+    start_pub.publish(start_marker_msg);
+    goal_pub.publish(goal_marker_msg);
+    // plan trajectory
+    plan();
+  }
 }
 
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
-    // init ROS......
-    ros::init(argc, argv, "eth_mav_octomap_planner");
-    ros::NodeHandle nh("~");
+    //init ROS......
+    ros::init(argc, argv, "octomap_compare_planner");
+    ros::NodeHandle n("~");
 
-    // Read paramters.....
-    nh.param<double>("max_planning_duration", max_planning_duration, 5.0);
-    nh.param<bool>("is_bounding_box_flag", is_bounding_box_flag, true);
+    n.param<double>("max_planning_duration", max_planning_duration, 5.0);
 
-    // ROS Publishers.....
-    vis_pub = nh.advertise<visualization_msgs::MarkerArray>( "/trajectory_landing/spline_marker_array" ,1 , true);
-    start_pub = nh.advertise<visualization_msgs::Marker>( "/trajectory_landing/start_pose_marker", 1, true);
-    goal_pub = nh.advertise<visualization_msgs::Marker>( "/trajectory_landing/goal_pose_marker", 1, true);
+    //ROS Publishers.....
+    start_pub = n.advertise<visualization_msgs::Marker>( "/trajectory_landing/start_pose_marker", 1, true);
+    goal_pub = n.advertise<visualization_msgs::Marker>( "/trajectory_landing/goal_pose_marker", 1, true);
+    vis_pub = n.advertise<visualization_msgs::MarkerArray>("/new/jerk_free_trajectory", 1, true);
+    spline_pub = n.advertise<visualization_msgs::Marker>("/new/rrt_spline_trajectory", 200, true);
+    traj_pub = n.advertise<trajectory_msgs::MultiDOFJointTrajectory>("/new/planned_path", 1, true);
 
-    // ROS SUbscribers.....
-    // using namespace message_filters;
-    // message_filters::Subscriber<octomap_msgs::Octomap> oct_sub(nh, "/octomap_binary", 1);
-    // message_filters::Subscriber<geometry_msgs::PoseStamped> cur_pose_sub(nh, "/airsim/pose", 1);
-    //
-    // typedef sync_policies::ApproximateTime<octomap_msgs::Octomap, geometry_msgs::PoseStamped> RetrieveSimDataPolicy;
-    // Synchronizer<RetrieveSimDataPolicy> sync(RetrieveSimDataPolicy(10000), oct_sub, cur_pose_sub);
-    // sync.registerCallback(boost::bind(&cust_callback, _1, _2));
-    //
-    // ros::Subscriber landing_pose_sub = nh.subscribe("/trajectory_landing/clicked_goal_pose", 1, get_landing_point_callback);
+    //ROS SUbscribers.....
 
-    ros::Subscriber oct_sub = nh.subscribe("/octomap_binary", 1, cust_callback);
+    ros::Subscriber oct_sub = n.subscribe("/octomap_binary", 1, cust_callback);
 
     using namespace message_filters;
-    message_filters::Subscriber<geometry_msgs::PoseStamped> cur_pose_sub(nh, "/airsim/pose", 1);
-    message_filters::Subscriber<geometry_msgs::PoseStamped> landing_pose_sub(nh, "/trajectory_landing/clicked_goal_pose", 1);
+    message_filters::Subscriber<geometry_msgs::PoseStamped> cur_pose_sub(n, "/airsim/pose", 1);
+    message_filters::Subscriber<geometry_msgs::PoseStamped> landing_pose_sub(n, "/trajectory_landing/clicked_goal_pose", 1);
 
     typedef sync_policies::ApproximateTime<geometry_msgs::PoseStamped, geometry_msgs::PoseStamped> RetrieveSimDataPolicy;
     Synchronizer<RetrieveSimDataPolicy> sync(RetrieveSimDataPolicy(10000), cur_pose_sub, landing_pose_sub);
     sync.registerCallback(boost::bind(&get_landing_point_callback, _1, _2));
 
-    ROS_INFO("OMPL version: %s \n", OMPL_VERSION);
+    std::cout << "OMPL version: " << OMPL_VERSION << std::endl;
 
     ros::spin();
 
